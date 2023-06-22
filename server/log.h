@@ -23,6 +23,6 @@ int log_destroy();
 
 void report_info(const char *str, ...);
 
-void report_error(const char *error_str, enum ErrorOrigin, enum ErrorLevel);
+void report_error(enum ErrorOrigin error_origin, enum ErrorLevel error_level, const char *error_str, ...);
 
 #endif

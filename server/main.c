@@ -14,6 +14,8 @@
 #define COMM_PATH "/tmp/server-request"
 #define FLOCK_PATH "/server/.~mgr"
 
+pthread_t log_thread;
+
 int request_socket_fd; // Socket file descriptor for server-side request management
 
 int main(int argc, char *argv[])
@@ -37,10 +39,10 @@ int main(int argc, char *argv[])
 
     // setup socket vars //
     struct sockaddr_un request_socket_name;
-    size_t request_socket_size;
+    unsigned int request_socket_size;
     // create socket file descriptors
     if ((request_socket_fd = socket(AF_LOCAL, SOCK_SEQPACKET, 0)) < 0)
-        report_error("Could not create socket", MAIN_ERR, ERR_CRITICAL);
+        report_error(MAIN_ERR, ERR_CRITICAL, "Could not create request socket");
     // assign vfs name to sockets
     request_socket_name.sun_family = AF_LOCAL;
     strncpy(request_socket_name.sun_path, COMM_PATH, sizeof(request_socket_name.sun_path));
@@ -48,16 +50,24 @@ int main(int argc, char *argv[])
     request_socket_size = (offsetof(struct sockaddr_un, sun_path) + strlen(request_socket_name.sun_path));
     // bind sockets
     if (bind(request_socket_fd, (struct sockaddr *)&request_socket_name, request_socket_size) < 0)
-        report_error("Could not bind socket", MAIN_ERR, ERR_CRITICAL);
+        report_error(MAIN_ERR, ERR_CRITICAL, "Could not bind request socket");
 
-    report_info("");
+    report_info("Created new Unix Socket %d bound to %s", request_socket_fd, COMM_PATH);
 
     // start listening to loop sockets
     listen(request_socket_fd, 10);
+    // create list of threads to handle server operations
+    pthread_t threads[BACKLOG_CNT];
+    unsigned int thread_cnt = 0;
 
-    pthread_t threads[1]; // list of threads that will grow as requests are made
-    size_t thread_cnt = 0;
-    size_t thread_Cap = 1;
+    //  socket conneciton queue
+    while (1)
+    {
+        request_socket_size = (offsetof(struct sockaddr_un, sun_path) + strlen(request_socket_name.sun_path));
+
+        // extract first connection
+        int connected_socket = accept(request_socket_fd, (struct sockaddr *)&request_socket_name, &request_socket_size);
+    }
 
     return 0;
 }
