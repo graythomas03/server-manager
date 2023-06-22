@@ -53,7 +53,73 @@ int log_destroy()
     return status;
 }
 
-void report_error(char *error_str, enum ErrorOrigin error_origin, enum ErrorLevel error_level)
+void report_info(const char *str, ...)
+{
+
+    va_list args;
+    va_start(args, str);
+
+    // using output buffer to reduce amount of fs write calls
+    int buffer_cap = 10;
+    int buffer_cnt = 0;
+    char *out_buffer = malloc(buffer_cap);
+
+    // basically a simple fprintf wrapper
+    while (*str != '\0')
+    {
+        switch (*str)
+        {
+        case '%':
+            ++str; // determine which flag
+            switch (*str)
+            {
+            case 'd':
+                int i = va_arg(args, int);
+                buffer_cnt += sprintf(out_buffer + buffer_cnt, "%d", i);
+
+                break;
+            case 's':
+                char *s = va_arg(args, char *);
+                buffer_cnt += sprintf(out_buffer + buffer_cnt, "%s", s);
+                break;
+            case 'f':
+                break;
+            }
+            break;
+        case '\\':
+            // skip to next character
+            ++str;
+            // special new line and tab cases
+            // will exit this case and not fall through
+            if (*str == 'n')
+            {
+            terrible:
+                *(out_buffer + buffer_cnt) = '\n';
+                ++buffer_cnt;
+                break;
+            }
+            else if (*str == 't')
+            {
+                *(out_buffer + buffer_cnt) = '\t';
+                ++buffer_cnt;
+                break;
+            }
+        default:
+            *(out_buffer + buffer_cnt) = *str;
+            ++buffer_cnt;
+        }
+
+        ++str;
+    }
+
+    // write terminating newline
+    goto terrible;
+
+    // string has been read, block write to log file
+    fwrite(out_buffer, buffer_cnt, 1, log_fp);
+}
+
+void report_error(const char *error_str, enum ErrorOrigin error_origin, enum ErrorLevel error_level)
 {
     int fail = 0; // used to determine if this error should immidiately close the program
 
@@ -61,12 +127,12 @@ void report_error(char *error_str, enum ErrorOrigin error_origin, enum ErrorLeve
     int level_len = 0, origin_len = 0;
     switch (error_level)
     {
-    case CRITICAL:
+    case ERR_CRITICAL:
         fail |= 1;
         levelstr = "CRITICAL: "; // str is len 10
         level_len = 10;
         break;
-    case STANDARD:
+    case ERR_STANDARD:
         levelstr = "STANDARD: "; // str is len 10
         level_len = 10;
         break;

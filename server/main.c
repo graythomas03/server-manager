@@ -10,6 +10,7 @@
 
 #include "log.h"
 
+#define BACKLOG_CNT 10
 #define COMM_PATH "/tmp/server-request"
 #define FLOCK_PATH "/server/.~mgr"
 
@@ -37,20 +38,22 @@ int main(int argc, char *argv[])
     // setup socket vars //
     struct sockaddr_un request_socket_name;
     size_t request_socket_size;
-
     // create socket file descriptors
     if ((request_socket_fd = socket(AF_LOCAL, SOCK_SEQPACKET, 0)) < 0)
-        report_error("Could not create socket", MAIN_ERR, CRITICAL);
-
+        report_error("Could not create socket", MAIN_ERR, ERR_CRITICAL);
     // assign vfs name to sockets
     request_socket_name.sun_family = AF_LOCAL;
     strncpy(request_socket_name.sun_path, COMM_PATH, sizeof(request_socket_name.sun_path));
     request_socket_name.sun_path[sizeof(request_socket_name.sun_path) - 1] = '\0';
     request_socket_size = (offsetof(struct sockaddr_un, sun_path) + strlen(request_socket_name.sun_path));
-
     // bind sockets
     if (bind(request_socket_fd, (struct sockaddr *)&request_socket_name, request_socket_size) < 0)
-        report_error("Could not bind socket", MAIN_ERR, CRITICAL);
+        report_error("Could not bind socket", MAIN_ERR, ERR_CRITICAL);
+
+    report_info("");
+
+    // start listening to loop sockets
+    listen(request_socket_fd, 10);
 
     pthread_t threads[1]; // list of threads that will grow as requests are made
     size_t thread_cnt = 0;

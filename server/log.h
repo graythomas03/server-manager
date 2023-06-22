@@ -1,10 +1,12 @@
 #ifndef __LOG__
 #define __LOG__
 
+#include <stdarg.h>
+
 enum ErrorLevel
 {
-    STANDARD = 0,
-    CRITICAL
+    ERR_STANDARD = 0,
+    ERR_CRITICAL
 };
 enum ErrorOrigin
 {
@@ -19,6 +21,8 @@ int log_setup();
 
 int log_destroy();
 
-void report_error(char *error_str, enum ErrorOrigin, enum ErrorLevel);
+void report_info(const char *str, ...);
+
+void report_error(const char *error_str, enum ErrorOrigin, enum ErrorLevel);
 
 #endif
