@@ -25,10 +25,9 @@ unsigned int request_socket_size;
  */
 void *local_request_manager(void *args)
 {
-    int backlog_max = *((int *)args);
 
-    pthread_t threads[backlog_max];
-    int thread_cnt = 0;
+    // pthread_t threads[backlog_max];
+    // int thread_cnt = 0;
 
     // polling for requests
     while (1)
@@ -36,18 +35,30 @@ void *local_request_manager(void *args)
         // pull new connection from queue
         int connected_socket = accept(request_socket_fd, (struct sockaddr *)&request_socket_name, &request_socket_size);
 
-        // ensure there are availible threads
-        /* TODO: brute force thread management, come up with better solution */
-        if (thread_cnt >= backlog_max)
+        //     // ensure there are availible threads
+        //     /* TODO: brute force thread management, come up with better solution */
+        //     if (thread_cnt >= backlog_max)
+        //     {
+        //         for (int i = 0; i < backlog_max; ++i)
+        //             pthread_join(threads[i], NULL);
+
+        //         thread_cnt = 0;
+        //     }
+
+        //     pthread_create(&threads[thread_cnt], NULL, parse_request, &connected_socket);
+        //     thread_cnt++;
+
+        // try creating thread as detachable
+        // all errors will be written to the log anyways, no need for driver to handle them
+        pthread_t newthread;
+        if (pthread_create(&newthread, NULL, parse_request, &connected_socket) != 0)
         {
-            for (int i = 0; i < backlog_max; ++i)
-                pthread_join(threads[i], NULL);
-
-            thread_cnt = 0;
+            report_error(THREAD_ERR, ERR_STANDARD, "Error creating process thread for request id %d; Handling in main thread instead", 0);
         }
-
-        pthread_create(&threads[thread_cnt], NULL, parse_request, &connected_socket);
-        thread_cnt++;
+        else if (pthread_detach(newthread) != 0)
+        {
+            report_error(THREAD_ERR, ERR_STANDARD, "Error detaching process thread for request id %d", 0);
+        }
     }
 
     return NULL;
@@ -89,15 +100,15 @@ int main(int argc, char *argv[])
 
     report_info("Created new Unix Socket %d bound to %s", request_socket_fd, COMM_PATH);
 
-    // start listening to sockets
-    listen(request_socket_fd, BACKLOG_CNT);
-
     // determine max number of threads/socket backlog for each request management thread
     // may change during dev time
     int backlog_max = BACKLOG_CNT;
 
+    // start listening to sockets
+    listen(request_socket_fd, BACKLOG_CNT);
+
     // pass through sockets to dedicated listening threads
-    local_request_manager(&backlog_max);
+    local_request_manager(NULL);
 
     return 0;
 }

@@ -12,7 +12,8 @@ enum ErrorOrigin
 {
     ACCOUNT_ERR,
     SYNC_ERR,
-    MAIN_ERR
+    MAIN_ERR,
+    THREAD_ERR
 };
 
 extern char *current_logfile;

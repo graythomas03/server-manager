@@ -79,6 +79,15 @@ static inline int digit_cnt(int src)
 
     return digits;
 }
+
+/**
+ *  Writes a timestamp at current entry within the log
+ * NOTE: no newline is appended after timestamp
+ */
+static void log_timestamp()
+{
+}
+
 /** Writes formatted strings to the log file*/
 static void log_write(const char *str, va_list args)
 {
@@ -180,32 +189,40 @@ void report_error(enum ErrorOrigin error_origin, enum ErrorLevel error_level, co
     case ERR_CRITICAL:
         fail |= 1;
         levelstr = "CRITICAL: "; // str is len 10
-        level_len = 10;
+        // level_len = 10;
         break;
     case ERR_STANDARD:
         levelstr = "STANDARD: "; // str is len 10
-        level_len = 10;
+        // level_len = 10;
         break;
     default:
         levelstr = ": ";
-        level_len = 2;
+        // level_len = 2;
     }
 
     switch (error_origin)
     {
     case ACCOUNT_ERR:
         originstr = " ACCOUNT_ERR-> ";
-        origin_len = 14;
+        // origin_len = 14;
         break;
     case SYNC_ERR:
         originstr = " SYNC_ERR-> ";
-        origin_len = 12;
+        // origin_len = 12;
         break;
     case MAIN_ERR:
         originstr = " DRIVER_ERR-> ";
-        origin_len = 14;
+        // origin_len = 14;
+        break;
+
+    case THREAD_ERR:
+        originstr = "THREAD_ERR-> ";
+        // origin_len = 13;
         break;
     }
+
+    level_len = strlen(levelstr);
+    origin_len = strlen(originstr);
 
     // write level string
     while (level_len)
@@ -231,4 +248,4 @@ void report_error(enum ErrorOrigin error_origin, enum ErrorLevel error_level, co
         log_destroy();
         exit(1);
     }
-}
+};
