@@ -9,14 +9,49 @@
 #include <unistd.h>
 
 #include "log.h"
+#include "request.h"
 
 #define BACKLOG_CNT 10
 #define COMM_PATH "/tmp/server-request"
 #define FLOCK_PATH "/server/.~mgr"
 
-pthread_t log_thread;
+int request_socket_fd;                  // Socket file descriptor for server-side request management
+struct sockaddr_un request_socket_name; // unix socket for local requests via ssh
+unsigned int request_socket_size;
 
-int request_socket_fd; // Socket file descriptor for server-side request management
+/**
+ * Function run by local request management thread
+ * args -> int representing socket file descriptor
+ */
+void *local_request_manager(void *args)
+{
+    int backlog_max = *((int *)args);
+
+    pthread_t threads[backlog_max];
+    int thread_cnt = 0;
+
+    // polling for requests
+    while (1)
+    {
+        // pull new connection from queue
+        int connected_socket = accept(request_socket_fd, (struct sockaddr *)&request_socket_name, &request_socket_size);
+
+        // ensure there are availible threads
+        /* TODO: brute force thread management, come up with better solution */
+        if (thread_cnt >= backlog_max)
+        {
+            for (int i = 0; i < backlog_max; ++i)
+                pthread_join(threads[i], NULL);
+
+            thread_cnt = 0;
+        }
+
+        pthread_create(&threads[thread_cnt], NULL, parse_request, &connected_socket);
+        thread_cnt++;
+    }
+
+    return NULL;
+}
 
 int main(int argc, char *argv[])
 {
@@ -24,6 +59,7 @@ int main(int argc, char *argv[])
     if (geteuid() != 0)
     {
         printf("Program must be run as root\n");
+        exit(1);
     }
 
     // ensure that there is only one manager active at a time
@@ -38,8 +74,7 @@ int main(int argc, char *argv[])
         exit(1);
 
     // setup socket vars //
-    struct sockaddr_un request_socket_name;
-    unsigned int request_socket_size;
+
     // create socket file descriptors
     if ((request_socket_fd = socket(AF_LOCAL, SOCK_SEQPACKET, 0)) < 0)
         report_error(MAIN_ERR, ERR_CRITICAL, "Could not create request socket");
@@ -54,20 +89,15 @@ int main(int argc, char *argv[])
 
     report_info("Created new Unix Socket %d bound to %s", request_socket_fd, COMM_PATH);
 
-    // start listening to loop sockets
-    listen(request_socket_fd, 10);
-    // create list of threads to handle server operations
-    pthread_t threads[BACKLOG_CNT];
-    unsigned int thread_cnt = 0;
+    // start listening to sockets
+    listen(request_socket_fd, BACKLOG_CNT);
 
-    //  socket conneciton queue
-    while (1)
-    {
-        request_socket_size = (offsetof(struct sockaddr_un, sun_path) + strlen(request_socket_name.sun_path));
+    // determine max number of threads/socket backlog for each request management thread
+    // may change during dev time
+    int backlog_max = BACKLOG_CNT;
 
-        // extract first connection
-        int connected_socket = accept(request_socket_fd, (struct sockaddr *)&request_socket_name, &request_socket_size);
-    }
+    // pass through sockets to dedicated listening threads
+    local_request_manager(&backlog_max);
 
     return 0;
 }

@@ -1,7 +1,7 @@
-#ifndef __REQUEST__
-#define __REQUEST__
+#ifndef _REQUEST_H
+#define _REQUEST_H
 
 // read a new request from the socket
-void parse_request(int sockfd);
+void *parse_request(void *arg);
 
 #endif
