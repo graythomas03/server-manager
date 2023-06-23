@@ -5,9 +5,13 @@
 
 #include "log.h"
 
-#define LOGSTR_LEN 29
+#define LOG_PATH_LEN 29
+#define TIME_STR_LEN 10 // used to determine best minimum length of a time string
+#define YEAR_OFFSET 1900
 
 static FILE *log_fp;
+
+// using mutex to make sure logs dont overwrite themselves
 
 int log_setup()
 {
@@ -25,12 +29,12 @@ int log_setup()
      *
      */
 
-    short year = tm.tm_year - 1900;
+    short year = tm.tm_year - YEAR_OFFSET;
     short month = tm.tm_mon + 1;
     short day = tm.tm_mday;
 
-    current_logfile = malloc(LOGSTR_LEN * sizeof(char));
-    snprintf(current_logfile, LOGSTR_LEN, "/server/server.log.%04d.%02d.%02d", year, month, day);
+    current_logfile = malloc(LOG_PATH_LEN * sizeof(char));
+    snprintf(current_logfile, LOG_PATH_LEN, "/server/server.log.%04d.%02d.%02d", year, month, day);
 
     // finall create new file
     log_fp = fopen(current_logfile, "w+");
@@ -86,6 +90,14 @@ static inline int digit_cnt(int src)
  */
 static void log_timestamp()
 {
+    /* create new log file for this instance */
+    // generate filename based on current date
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+
+    // time stamp format
+    // mm:dd:hh:mm:ss
+    fprintf(log_fp, "%02d:%02d:%02d:%02d:%02d\t", tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 
 /** Writes formatted strings to the log file*/
@@ -171,6 +183,8 @@ static void log_write(const char *str, va_list args)
 
 void report_info(const char *str, ...)
 {
+    log_timestamp();
+
     va_list args;
     va_start(args, str);
 
@@ -179,6 +193,7 @@ void report_info(const char *str, ...)
 
 void report_error(enum ErrorOrigin error_origin, enum ErrorLevel error_level, const char *error_str, ...)
 {
+    log_timestamp();
 
     int fail = 0; // used to determine if this error should immidiately close the program
 
