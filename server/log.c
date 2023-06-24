@@ -1,64 +1,48 @@
+#include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "log.h"
 
+// macros to help with string length calculations
+// these will eventually be delegated to a config file
+#define DIR_PATH_LEN 13 // length of containing directory /server/logs/
 #define LOG_PATH_LEN 29
-#define TIME_STR_LEN 10 // used to determine best minimum length of a time string
-#define YEAR_OFFSET 1900
+#define TIME_STR_LEN 14
+// default capacity for each string buffer
+#define LOG_STR_BUFFER_LEN 100
+#define YEAR_OFFSET_BASE 1900 // used to derive current year from offset
 
-static FILE *log_fp;
-
-// using mutex to make sure logs dont overwrite themselves
-
-int log_setup()
+/**
+ * Each entry in the queue will contain a string to print
+ * and a va_list
+ */
+struct WriteQEntry
 {
+    int len;
+    const char *str;
+};
+/* Log Shutdown Indicator */
+static char destroy = 0;
+/* File Descriptor of current log file */
+int log_fd;
+/* Log entry write queue */
+static struct WriteQEntry *write_queue;
+static int queue_front;
+static int queue_rear;
+static int queue_cap;
+static int queue_size = 0;
+/* Log Writer Thread and Mutex */
+static pthread_t write_thread;
+static pthread_mutex_t write_queue_lock = PTHREAD_MUTEX_INITIALIZER;
+// pthread_cond_t write_queue_full = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t write_queue_avail = PTHREAD_COND_INITIALIZER;
 
-    /* create new log file for this instance */
-    // generate filename based on current date
-    time_t t = time(NULL);
-    struct tm tm = *localtime(&t);
-
-    /*
-     *
-     * File time string format
-     * server.log.*year*.*month*.*day*
-     * server.log.2023.06.15
-     *
-     */
-
-    short year = tm.tm_year - YEAR_OFFSET;
-    short month = tm.tm_mon + 1;
-    short day = tm.tm_mday;
-
-    current_logfile = malloc(LOG_PATH_LEN * sizeof(char));
-    snprintf(current_logfile, LOG_PATH_LEN, "/server/server.log.%04d.%02d.%02d", year, month, day);
-
-    // finall create new file
-    log_fp = fopen(current_logfile, "w+");
-
-    // if log file cant be opened, return -1
-    if (log_fp == NULL)
-        return 1;
-
-    // success state
-    return 0;
-}
-
-int log_destroy()
-{
-    int status = 0;
-
-    // close log file
-    status |= fclose(log_fp);
-    free(current_logfile);
-
-    return status;
-}
-
-// helper method for size management
+// helper method for size managemFILEent
 static inline void *check_buffer_resize(void *victim, int *current, int needed)
 {
     if (*current > needed)
@@ -84,27 +68,71 @@ static inline int digit_cnt(int src)
     return digits;
 }
 
-/**
- *  Writes a timestamp at current entry within the log
- * NOTE: no newline is appended after timestamp
- */
-static void log_timestamp()
+static void *queue_writer(void *arg)
 {
-    /* create new log file for this instance */
-    // generate filename based on current date
-    time_t t = time(NULL);
-    struct tm tm = *localtime(&t);
+    // expect threshold argument
+    int threshold = *((int *)arg);
 
-    // time stamp format
-    // mm:dd:hh:mm:ss
-    fprintf(log_fp, "%02d:%02d:%02d:%02d:%02d\t", tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    // this loop will continue until program ends
+    while (destroy == 0)
+    {
+        // only start writing once queue reaches designated threshold
+        // this should reduce amount of actual writing done to improve performance
+        while (queue_size >= threshold)
+        {
+            pthread_mutex_lock(&write_queue_lock);
+            // pull form queue
+            struct WriteQEntry victim = write_queue[queue_front];
+            queue_front = (queue_front + 1) % queue_cap;
+            --queue_size;
+            // out of critical section, can active other threads that need the write queue
+            pthread_mutex_unlock(&write_queue_lock);
+            pthread_cond_signal(&write_queue_avail);
+
+            // write log string to entry
+            write(log_fd, victim.str, victim.len);
+        }
+    }
+
+    // if we reach this point, program is shutting down
+    // so all logs must be written
+    while (queue_size > 0)
+    {
+        struct WriteQEntry victim = write_queue[queue_front];
+        queue_front = (queue_front + 1) % queue_cap;
+        --queue_size;
+        write(log_fd, victim.str, victim.len);
+    }
+
+    return NULL;
+}
+
+static void *append_queue(void *args)
+{
+    struct WriteQEntry tmp = *((struct WriteQEntry *)args);
+
+    // acquire a lock on the write queue
+    pthread_mutex_lock(&write_queue_lock);
+    // queue is full, wait for it to lower a bit
+    if (queue_size >= queue_cap)
+    {
+        pthread_cond_wait(&write_queue_avail, &write_queue_lock);
+    }
+    // add new log entry to queue
+    write_queue[queue_rear] = tmp;
+    queue_rear = (queue_rear + 1) % queue_cap;
+    ++queue_size;
+
+    pthread_mutex_unlock(&write_queue_lock);
+
+    return NULL;
 }
 
 /** Writes formatted strings to the log file*/
-static void log_write(const char *str, va_list args)
+inline void log_write(const char *str, va_list args)
 {
     // using output buffer to reduce amount of fs write calls
-    int buffer_cap = 10;
+    int buffer_cap = TIME_STR_LEN + LOG_STR_BUFFER_LEN;
     int buffer_cnt = 0;
     char *out_buffer = malloc(buffer_cap);
 
@@ -163,6 +191,7 @@ static void log_write(const char *str, va_list args)
             }
             // other characters will fall through to print as normal
         default:
+            out_buffer = check_buffer_resize(out_buffer, &buffer_cap, buffer_cnt + 1);
             *(out_buffer + buffer_cnt) = *str;
             ++buffer_cnt;
         }
@@ -174,16 +203,61 @@ static void log_write(const char *str, va_list args)
     *(out_buffer + buffer_cnt) = '\n';
     ++buffer_cnt;
 
-    // string has been read, block write to log file
-    fwrite(out_buffer, buffer_cnt, 1, log_fp);
+    // append to queue
+    struct WriteQEntry tmp = {buffer_cnt, out_buffer};
+    pthread_t newthread;
+    pthread_create(&newthread, NULL, append_queue, &tmp);
+    pthread_detach(newthread);
+}
 
-    // clean up dynamic memory
-    free(out_buffer);
+int log_setup(int write_qcap, int write_qthreshold)
+{
+    // generate filename based on current date
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+
+    /*
+     *
+     * File time string format
+     * server.log.*year*.*month*.*day*
+     * server.log.2023.06.15
+     *
+     */
+    short year = tm.tm_year + YEAR_OFFSET_BASE;
+    short month = tm.tm_mon + 1;
+    short day = tm.tm_mday;
+    // open or create log file
+    char log_path[LOG_PATH_LEN + 1];
+    // hostname will be replaced later by a config file system
+    sprintf(log_path, "hostname.log.%04d.%02d.%02d", year, month, day);
+    open(log_path, O_CREAT | O_APPEND);
+    // allocate circular write buffer
+    queue_cap = write_qcap;
+    queue_front = 0;
+    queue_rear = 0;
+    write_queue = calloc(write_qcap, sizeof(struct WriteQEntry));
+    // create file writer thread
+    int threshold = write_qthreshold;
+    pthread_create(&write_thread, NULL, queue_writer, &threshold);
+    pthread_detach(write_thread);
+    // success state
+    return 0;
+}
+
+void log_destroy()
+{
+    destroy = 1; // set destroy to let all log threads know their time has come
+    // might do errno stuff here //
+    // wait until writing queue is empty
+    while (queue_size > 0)
+        ;
+
+    // close log file
+    close(log_fd);
 }
 
 void report_info(const char *str, ...)
 {
-    log_timestamp();
 
     va_list args;
     va_start(args, str);
@@ -193,74 +267,66 @@ void report_info(const char *str, ...)
 
 void report_error(enum ErrorOrigin error_origin, enum ErrorLevel error_level, const char *error_str, ...)
 {
-    log_timestamp();
 
-    int fail = 0; // used to determine if this error should immidiately close the program
-
+    int len = 0, origin_len = 0, level_len = 0;
     char *levelstr, *originstr;
-    int level_len = 0, origin_len = 0;
     switch (error_level)
     {
     case ERR_CRITICAL:
-        fail |= 1;
         levelstr = "CRITICAL: "; // str is len 10
-        // level_len = 10;
+        len += 10;
         break;
     case ERR_STANDARD:
         levelstr = "STANDARD: "; // str is len 10
-        // level_len = 10;
+        len += 10;
         break;
-    default:
-        levelstr = ": ";
-        // level_len = 2;
     }
 
     switch (error_origin)
     {
     case ACCOUNT_ERR:
         originstr = " ACCOUNT_ERR-> ";
-        // origin_len = 14;
+        len += 14;
         break;
     case SYNC_ERR:
         originstr = " SYNC_ERR-> ";
-        // origin_len = 12;
+        len += 12;
         break;
     case MAIN_ERR:
         originstr = " DRIVER_ERR-> ";
-        // origin_len = 14;
+        len += 14;
         break;
 
     case THREAD_ERR:
         originstr = "THREAD_ERR-> ";
-        // origin_len = 13;
+        len += 13;
         break;
     }
 
-    level_len = strlen(levelstr);
-    origin_len = strlen(originstr);
+    // combine all strings
+    len += strlen(error_str);
+    char final_error_str[len + 1];
+    int final_idx = 0;
 
-    // write level string
-    while (level_len)
+    while (*levelstr != '\0')
     {
-        fputc(*levelstr, log_fp);
-        levelstr++;
+        final_error_str[final_idx++] = *levelstr;
+        ++levelstr;
     }
-    // write error origin string
-    while (origin_len)
+    while (*originstr != '\0')
     {
-        fputc(*originstr, log_fp);
-        originstr++;
+        final_error_str[final_idx++] = *originstr;
+        ++originstr;
+    }
+    while (*error_str != '\0')
+    {
+        final_error_str[final_idx++] = *error_str;
+        ++originstr;
     }
 
     // write error string using log_write
     va_list args;
     va_start(args, error_str);
 
-    log_write(error_str, args);
-
-    if (fail != 0)
-    {
-        log_destroy();
-        exit(1);
-    }
+    log_write(final_error_str, args);
 };

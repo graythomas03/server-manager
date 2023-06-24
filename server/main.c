@@ -11,7 +11,8 @@
 #include "log.h"
 #include "request.h"
 
-#define BACKLOG_CNT 10
+#define LOG_QSIZE 10
+#define BACKLOG_CNT 10 // maxmimum number of connections that will be held in the queue at anytime
 #define COMM_PATH "/tmp/server-request"
 #define FLOCK_PATH "/server/.~mgr"
 
@@ -81,7 +82,7 @@ int main(int argc, char *argv[])
     }
 
     // invoke setup of error reporting environment
-    if (log_setup() != 0)
+    if (log_setup(LOG_QSIZE, LOG_QSIZE / 2) != 0)
         exit(1);
 
     // setup socket vars //

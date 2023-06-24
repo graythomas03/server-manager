@@ -16,11 +16,9 @@ enum ErrorOrigin
     THREAD_ERR
 };
 
-extern char *current_logfile;
+int log_setup(int write_qcap, int write_qthreshold);
 
-int log_setup();
-
-int log_destroy();
+void log_destroy();
 
 void report_info(const char *str, ...);
 
