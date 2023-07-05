@@ -2,6 +2,8 @@
     "files.associations": {
         "stdio.h": "c",
         "stdarg.h": "c",
-        "sstream": "c"
+        "sstream": "c",
+        "request.h": "c",
+        "log.h": "c"
     }
 }

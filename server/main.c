@@ -5,26 +5,54 @@
 #include <string.h>
 #include <sys/file.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "log.h"
 #include "request.h"
 
-#define LOG_QSIZE 10
 #define BACKLOG_CNT 10 // maxmimum number of connections that will be held in the queue at anytime
+
+// Default Path Macros
 #define COMM_PATH "/tmp/server-request"
 #define FLOCK_PATH "/server/.~mgr"
+#define CONF_DIR "/etc/server-manager/"
+#define CACHE_DIR "/var/cache/server-manager/"
 
-int request_socket_fd;                  // Socket file descriptor for server-side request management
-struct sockaddr_un request_socket_name; // unix socket for local requests via ssh
-unsigned int request_socket_size;
+static int request_socket_fd;                  // Socket file descriptor for server-side request management
+static struct sockaddr_un request_socket_name; // unix socket for local requests via ssh
+static unsigned int request_socket_size;
+
+static unsigned char *blacklist[2];
+// blacklist[0] for local blacklist (uid, gid)
+#define BL_LOCAL_TABLE blacklist[0]
+// blacklist[1] for remote blacklist (ip addr)
+#define BL_REMOTE_TABLE blacklist[1]
+
+void load_blacklist(const char *bl_path)
+{
+    // ensure blacklist has not been changed since last hashing
+
+    int fd = open(bl_path, __O_NOATIME);
+
+    // read in blacklist hash table from cache file //
+
+    // read blacklist counts
+    struct blacklist_cnt
+    {
+        unsigned int local;
+        unsigned int remote;
+    } tmp;
+
+    read(fd, &tmp, sizeof(struct blacklist_cnt));
+}
 
 /**
  * Function run by local request management thread
  * args -> int representing socket file descriptor
  */
-void *local_request_manager(void *args)
+void *
+local_request_manager(void *args)
 {
 
     // pthread_t threads[backlog_max];
@@ -36,29 +64,16 @@ void *local_request_manager(void *args)
         // pull new connection from queue
         int connected_socket = accept(request_socket_fd, (struct sockaddr *)&request_socket_name, &request_socket_size);
 
-        //     // ensure there are availible threads
-        //     /* TODO: brute force thread management, come up with better solution */
-        //     if (thread_cnt >= backlog_max)
-        //     {
-        //         for (int i = 0; i < backlog_max; ++i)
-        //             pthread_join(threads[i], NULL);
-
-        //         thread_cnt = 0;
-        //     }
-
-        //     pthread_create(&threads[thread_cnt], NULL, parse_request, &connected_socket);
-        //     thread_cnt++;
-
         // try creating thread as detachable
         // all errors will be written to the log anyways, no need for driver to handle them
         pthread_t newthread;
         if (pthread_create(&newthread, NULL, parse_request, &connected_socket) != 0)
         {
-            report_error(THREAD_ERR, ERR_STANDARD, "Error creating process thread for request id %d; Handling in main thread instead", 0);
+            // thread err
         }
         else if (pthread_detach(newthread) != 0)
         {
-            report_error(THREAD_ERR, ERR_STANDARD, "Error detaching process thread for request id %d", 0);
+            // thread err
         }
     }
 
@@ -67,10 +82,11 @@ void *local_request_manager(void *args)
 
 int main(int argc, char *argv[])
 {
-    // USER MUST RUN AS ROOT
+    // MUST RUN AS ROOT
     if (geteuid() != 0)
+        ;
     {
-        printf("Program must be run as root\n");
+        printf("Must be run as root\n");
         exit(1);
     }
 
@@ -81,15 +97,18 @@ int main(int argc, char *argv[])
         printf("Only one isntance of this program can be active at once");
     }
 
-    // invoke setup of error reporting environment
-    if (log_setup(LOG_QSIZE, LOG_QSIZE / 2) != 0)
-        exit(1);
+    // start logging program (will likely be TinyLogger)
 
     // setup socket vars //
 
     // create socket file descriptors
     if ((request_socket_fd = socket(AF_LOCAL, SOCK_SEQPACKET, 0)) < 0)
-        report_error(MAIN_ERR, ERR_CRITICAL, "Could not create request socket");
+        ;
+    // socket err
+
+    /** Create Server Comm Sockets */
+
+    // Local Comm Socket //
     // assign vfs name to sockets
     request_socket_name.sun_family = AF_LOCAL;
     strncpy(request_socket_name.sun_path, COMM_PATH, sizeof(request_socket_name.sun_path));
@@ -97,9 +116,9 @@ int main(int argc, char *argv[])
     request_socket_size = (offsetof(struct sockaddr_un, sun_path) + strlen(request_socket_name.sun_path));
     // bind sockets
     if (bind(request_socket_fd, (struct sockaddr *)&request_socket_name, request_socket_size) < 0)
-        report_error(MAIN_ERR, ERR_CRITICAL, "Could not bind request socket");
+        ; // socket err
 
-    report_info("Created new Unix Socket %d bound to %s", request_socket_fd, COMM_PATH);
+    // write newly created socket id to log
 
     // determine max number of threads/socket backlog for each request management thread
     // may change during dev time
@@ -108,8 +127,10 @@ int main(int argc, char *argv[])
     // start listening to sockets
     listen(request_socket_fd, BACKLOG_CNT);
 
-    // pass through sockets to dedicated listening threads
+    // pass through connected sockets to dedicated listening threads
     local_request_manager(NULL);
+
+    free(BL_LOCAL_TABLE);
 
     return 0;
 }
