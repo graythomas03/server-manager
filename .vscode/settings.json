@@ -4,6 +4,12 @@
         "stdarg.h": "c",
         "sstream": "c",
         "request.h": "c",
-        "log.h": "c"
+        "log.h": "c",
+        "pthread.h": "c",
+        "unistd.h": "c",
+        "socket.h": "c",
+        "file.h": "c",
+        "stdlib.h": "c",
+        "chrono": "c"
     }
 }

@@ -9,6 +9,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "blacklist.h"
 #include "request.h"
 
 #define BACKLOG_CNT 10 // maxmimum number of connections that will be held in the queue at anytime
@@ -23,36 +24,11 @@ static int request_socket_fd;                  // Socket file descriptor for ser
 static struct sockaddr_un request_socket_name; // unix socket for local requests via ssh
 static unsigned int request_socket_size;
 
-static unsigned char *blacklist[2];
-// blacklist[0] for local blacklist (uid, gid)
-#define BL_LOCAL_TABLE blacklist[0]
-// blacklist[1] for remote blacklist (ip addr)
-#define BL_REMOTE_TABLE blacklist[1]
-
-void load_blacklist(const char *bl_path)
-{
-    // ensure blacklist has not been changed since last hashing
-
-    int fd = open(bl_path, __O_NOATIME);
-
-    // read in blacklist hash table from cache file //
-
-    // read blacklist counts
-    struct blacklist_cnt
-    {
-        unsigned int local;
-        unsigned int remote;
-    } tmp;
-
-    read(fd, &tmp, sizeof(struct blacklist_cnt));
-}
-
 /**
  * Function run by local request management thread
  * args -> int representing socket file descriptor
  */
-void *
-local_request_manager(void *args)
+void *local_request_manager(void *args)
 {
 
     // pthread_t threads[backlog_max];
@@ -106,7 +82,7 @@ int main(int argc, char *argv[])
         ;
     // socket err
 
-    /** Create Server Comm Sockets */
+    // Create Server comm Sockets //
 
     // Local Comm Socket //
     // assign vfs name to sockets
@@ -130,7 +106,9 @@ int main(int argc, char *argv[])
     // pass through connected sockets to dedicated listening threads
     local_request_manager(NULL);
 
-    free(BL_LOCAL_TABLE);
-
     return 0;
 }
+
+/****************************************
+ * 32-bit implementation
+ ****************************************/
