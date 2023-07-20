@@ -10,6 +10,8 @@
         "socket.h": "c",
         "file.h": "c",
         "stdlib.h": "c",
-        "chrono": "c"
+        "chrono": "c",
+        "stat.h": "c",
+        "stdbool.h": "c"
     }
 }

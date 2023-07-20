@@ -35,20 +35,16 @@ void *local_request_manager(void *args)
     // int thread_cnt = 0;
 
     // polling for requests
-    while (1)
-    {
+    while (1) {
         // pull new connection from queue
         int connected_socket = accept(request_socket_fd, (struct sockaddr *)&request_socket_name, &request_socket_size);
 
         // try creating thread as detachable
         // all errors will be written to the log anyways, no need for driver to handle them
         pthread_t newthread;
-        if (pthread_create(&newthread, NULL, parse_request, &connected_socket) != 0)
-        {
+        if (pthread_create(&newthread, NULL, parse_request, &connected_socket) != 0) {
             // thread err
-        }
-        else if (pthread_detach(newthread) != 0)
-        {
+        } else if (pthread_detach(newthread) != 0) {
             // thread err
         }
     }
@@ -68,8 +64,7 @@ int main(int argc, char *argv[])
 
     // ensure that there is only one manager active at a time
     int lfd = open(FLOCK_PATH, O_CREAT | __O_NOATIME);
-    if (flock(lfd, LOCK_EX) != 0)
-    {
+    if (flock(lfd, LOCK_EX) != 0) {
         printf("Only one isntance of this program can be active at once");
     }
 
