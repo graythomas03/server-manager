@@ -24,7 +24,7 @@
 struct WriteQEntry
 {
     int len;
-    const char *str;
+    char *str;
 };
 /* Log Shutdown Indicator */
 static char destroy = 0;
@@ -91,6 +91,7 @@ static void *queue_writer(void *arg)
 
             // write log string to entry
             write(log_fd, victim.str, victim.len);
+            free(victim.str);
         }
     }
 
