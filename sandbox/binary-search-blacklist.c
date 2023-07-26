@@ -63,6 +63,7 @@ inline uint32_t stou32(const char *str)
     return out;
 }
 
+#if MODE == ORDERED
 void bst_add(void **table, size_t *table_size, size_t *table_cap, void *new_value, size_t element_size)
 {
     if (element_size == 0)
@@ -87,8 +88,6 @@ void bst_add(void **table, size_t *table_size, size_t *table_cap, void *new_valu
     void *current;
 
     current = *table;
-
-#if MODE == ORDERED
     // insert the new element in its sorted order
     // find index where value should be added
     for (; idx < tbl_size && memcmp(current, new_value, element_size) < 0; ++idx, current += element_size)
@@ -101,24 +100,21 @@ void bst_add(void **table, size_t *table_size, size_t *table_cap, void *new_valu
         memcpy(current, prev, element_size);
     memcpy(current, new_value, element_size);
 
-#elif MODE == CACHE_FRIENDLY
-    // tree-style array representation
-    // find index where new value should be added
-    current = tbl;
-    while (idx < tbl_size)
-
-#endif
-
     (*table_size)++;
 }
+#elif MODE == CACHE_FRIENDLY
+void bst_add(void **table, size_t *table_size, size_t *table_cap, void *new_value, size_t element_size)
+{
+}
+#endif
 
 // different methods of bianry search
-bool brachless_bs(void *key, size_t element_size)
+bool branchless_bs(void *table, void *key, size_t element_size)
 {
     return false;
 }
 
-#define BINARY_SEARCH(VICTIM) branchless_bs((VICTIM))
+#define BINARY_SEARCH(TABLEPTR, VALUEPTR, VALUESIZE) branchless_bs((TABLEPTR), (VALUEPTR), (VALUESIZE))
 
 // placeholder function for when no type is given
 inline void parse_nothing(const char *str) { return; }
@@ -282,6 +278,81 @@ void load_blacklist(const char *path)
     fclose(fp);
 }
 
-bool check_blacklist(const char *key)
+// test case driver
+int main(int argc, char *argv[])
 {
+    // take 1st cl arg as blacklist file path
+    // take 2nd cl arg as values to test searching runtimes
+    if (argc != 2) {
+        printf("use: bl-test [blacklist file] [search testing file]");
+        exit(1);
+    }
+
+    load_blacklist(argv[1]);
+
+    // each value is expected to be seperated by newlines
+    FILE *tfp = fopen(argv[2], "r");
+    // parsing vars
+    int tok_idx = 0;
+    char tok[MAX_TOK_LEN];
+    int ch;
+    // operation vars
+    size_t value_size = 0;
+    void *table;
+    while ((ch = fgetc(tfp)) != EOF) {
+        switch (ch) {
+        // whitespace or comma used as delimeter
+        case ' ':
+        case '\n':
+        case '\r':
+        case '\t':
+        case ',':
+            // skip any additional whitespace
+            do {
+                ch = fgetc(tfp);
+                if (ch == EOF) {
+                    ungetc(ch, tfp);
+                    break;
+                }
+
+            } while (isspace(ch));
+            ungetc(ch, tfp);
+            // mark as end of token
+            tok[tok_idx] = '\0';
+
+        case ':':
+            tok[tok_idx] = '\0';
+            tok_idx = 0; // reset token indexer
+            if (strcmp("uid", tok) == 0) {
+                table = uid_table;
+                value_size = sizeof(uid_t);
+            } else if (strcmp("gid", tok) == 0) {
+                table = gid_table;
+                value_size = sizeof(gid_t);
+            } else if (strcmp("ip4", tok) == 0) {
+                table = ip4_table;
+                value_size = sizeof(uint32_t);
+            } else if (strcmp("ip6", tok) == 0) {
+                table = ip6_table;
+                value_size = sizeof(uint128_t);
+            }
+
+            // skip any additional whitespace
+            do {
+                ch = fgetc(tfp);
+                if (ch == EOF) {
+                    ungetc(ch, tfp);
+                    break;
+                }
+
+            } while (isspace(ch));
+            ungetc(ch, tfp);
+
+            break;
+        default:
+            tok[tok_idx++] = ch;
+        }
+    }
+
+    fclose(tfp);
 }
